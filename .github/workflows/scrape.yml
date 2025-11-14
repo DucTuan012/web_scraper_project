@@ -1,6 +1,6 @@
 # .github/workflows/scrape.yml
 
-# Tên của workflow, bạn có thể đặt bất cứ tên gì
+# Tên của workflow
 name: 🐍 Check Gold Price
 
 on:
@@ -14,11 +14,18 @@ on:
     # Để test nhanh, bạn có thể đổi thành '*/5 * * * *' (mỗi 5 phút)
     - cron: '0 * * * *'
 
+# Cấp quyền "ghi" cho Action để nó có thể commit
+permissions:
+  contents: write
+
+# Nơi định nghĩa các công việc
 jobs:
+  # Tên của công việc (job)
   scrape:
     # Chạy trên máy ảo Ubuntu
     runs-on: ubuntu-latest
 
+    # Các bước thực thi
     steps:
       # Bước 1: Tải code từ kho chứa của bạn về máy ảo
       - name: 1. Check out repository
@@ -41,7 +48,6 @@ jobs:
         run: python scrape_gold.py
 
       # Bước 5: Tự động commit file gold_price.json đã bị thay đổi
-      # Đây là bước quan trọng để "lưu" giá mới cho lần chạy sau
       - name: 5. Commit and push if data changed
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
