@@ -1,0 +1,7 @@
+# Bỏ qua thư mục môi trường ảo (nếu bạn dùng)
+venv/
+__pycache__/
+
+# Bỏ qua các file dữ liệu (tùy chọn, nếu bạn không muốn đăng data lên)
+# data/
+*.csv
