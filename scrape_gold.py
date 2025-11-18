@@ -1,128 +1,148 @@
-import json
 import requests
 from bs4 import BeautifulSoup
-import re
+import json
+import os
+import time
 
-# File để lưu trữ giá
-JSON_FILE = 'gold_price.json'
+URL = "https://btmc.vn/"
+JSON_FILE = 'gold_data.json' 
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+}
 
-def get_last_price():
-    """Đọc giá từ file JSON."""
-    try:
-        with open(JSON_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            # Đảm bảo file có dữ liệu
-            if data and 'buy' in data:
-                return data
-    except (FileNotFoundError, json.JSONDecodeError):
-        # Nếu file không tồn tại hoặc lỗi, trả về giá trị 0
-        pass
-    return {'buy': 0, 'sell': 0}
-
-def save_new_price(new_price_data):
-    """Lưu giá mới vào file JSON."""
-    with open(JSON_FILE, 'w', encoding='utf-8') as f:
-        json.dump(new_price_data, f, indent=4, ensure_ascii=False)
-
-def clean_price(price_str):
-    """Xóa ký tự không phải số (như ,) và chuyển thành số nguyên."""
-    # Xóa tất cả các ký tự không phải là số
-    cleaned_str = re.sub(r'[^\d]', '', price_str)
+def clean_price_to_int(price_str):
+    if not isinstance(price_str, str):
+        return 0
+    
+    price_str = price_str.strip().lower()
+    
+    if "liên hệ" in price_str or not price_str:
+        return 0
+    
+    cleaned_str = "".join(filter(str.isdigit, price_str))
+    
     try:
         return int(cleaned_str)
     except ValueError:
-        print(f"Lỗi: Không thể chuyển đổi '{price_str}' thành số.")
         return 0
 
-def scrape_current_price():
-    """
-    --- PHIÊN BẢN CHÍNH THỨC ---
-    Scrape giá vàng SJC 1L, 10L từ website giavang.org
-    """
-    url = "https://giavang.org/"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    
-    print(f"Bắt đầu scrape từ {url}")
-    
+def get_last_data(json_file):
+
+    if not os.path.exists(json_file):
+        return {'last_updated': 'Chưa có', 'prices': {}}
+        
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()  # Báo lỗi nếu request thất bại (ví dụ: 404, 500)
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Tìm tất cả các hàng <tr> trong bảng
-        rows = soup.find_all('tr')
-        
-        for row in rows:
-            cells = row.find_all('td')
-            # Tìm hàng có chứa "SJC 1L, 10L"
-            if cells and "SJC 1L, 10L" in cells[0].get_text():
-                price_buy_str = cells[1].get_text()
-                price_sell_str = cells[2].get_text()
-                
-                print(f"Tìm thấy giá thô: Mua='{price_buy_str}', Bán='{price_sell_str}'")
-                
-                # Làm sạch giá
-                new_buy = clean_price(price_buy_str)
-                new_sell = clean_price(price_sell_str)
-                
-                if new_buy > 0 and new_sell > 0:
-                    return {'buy': new_buy, 'sell': new_sell}
-                else:
-                    print("Lỗi: Không thể làm sạch giá về số dương.")
-                    return None
+        with open(json_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            if 'last_updated' in data and 'prices' in data:
+                return data
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return {'last_updated': 'Chưa có', 'prices': {}}
 
-        print("Lỗi: Không tìm thấy hàng 'SJC 1L, 10L' trên trang.")
-        return None
+def save_new_data(json_file, new_data):
+    directory = os.path.dirname(json_file)
+    if directory and not os.path.exists(directory):
+        print(f"Tạo thư mục: {directory}")
+        os.makedirs(directory)
+        
+    with open(json_file, 'w', encoding='utf-8') as f:
+        json.dump(new_data, f, indent=4, ensure_ascii=False)
 
-    except requests.exceptions.RequestException as e:
-        print(f"Lỗi khi request đến website: {e}")
-        return None
+def fetch_gold_prices():
+    print(f"Đang đọc giá cũ từ: {JSON_FILE}...")
+    last_data = get_last_data(JSON_FILE)
+    last_update_time = last_data['last_updated']
+    last_prices = last_data['prices'] 
+    
+    print(f"Đang kết nối tới: {URL}...")
+    try:
+        response = requests.get(URL, headers=HEADERS, timeout=10)
+        response.raise_for_status()  
+        soup = BeautifulSoup(response.text, 'lxml') 
+
+        new_update_time_str = "Không tìm thấy"
+        update_time_element = soup.find('span', class_='mr-3')
+        if update_time_element:
+            full_text = update_time_element.text.strip()
+            if "Cập nhật lúc" in full_text:
+                new_update_time_str = full_text.replace("Cập nhật lúc", "").strip()
+        
+        print(f"Thời gian cập nhật cũ (từ file): {last_update_time}")
+        print(f"Thời gian cập nhật mới (từ web): {new_update_time_str}")
+
+        if new_update_time_str == last_update_time:
+            print("Giá không thay đổi (thời gian cập nhật giống hệt lần trước). Bỏ qua.")
+            print("--- Hoàn tất ---")
+            return
+        
+        print("Thời gian cập nhật đã thay đổi, bắt đầu lấy giá mới...")
+
+        gold_table = soup.find('table', class_='bd_price_home')
+        if not gold_table:
+            print("LỖI: Không tìm thấy bảng giá (class 'bd_price_home').")
+            return
+
+        data_rows = gold_table.find_all('tr')
+        current_prices_dict = {} 
+        
+        print("\n--- SO SÁNH CHI TIẾT GIÁ ---")
+        for row in data_rows:
+            cols = row.find_all('td')
+            if len(cols) < 5:
+                continue 
+
+            loai_vang = cols[1].text.strip()
+            gia_mua_str = cols[3].text.strip()
+            gia_ban_str = cols[4].text.strip()
+
+            if not loai_vang:
+                continue
+
+            gia_mua_num = clean_price_to_int(gia_mua_str)
+            gia_ban_num = clean_price_to_int(gia_ban_str)
+            
+            old_price_data = last_prices.get(loai_vang, {})
+            last_mua = old_price_data.get('buy_num', 0)
+            
+            change = 0
+            change_str = "--- (Mới)"
+            if gia_mua_num != 0 and last_mua != 0:
+                change = gia_mua_num - last_mua
+            
+            if change > 0:
+                change_str = f"TĂNG +{change:,.0f}"
+            elif change < 0:
+                change_str = f"GIẢM {change:,.0f}"
+            elif change == 0 and last_mua != 0:
+                 change_str = "Không đổi"
+
+            print(f" {loai_vang} | Mua: {gia_mua_str} | Thay đổi: {change_str}")
+
+            current_prices_dict[loai_vang] = {
+                'buy_str': gia_mua_str,
+                'sell_str': gia_ban_str,
+                'buy_num': gia_mua_num,
+                'sell_num': gia_ban_num
+            }
+
+        if not current_prices_dict:
+            print("Tìm thấy bảng nhưng không xử lý được dữ liệu nào.")
+            return
+
+        new_data_to_save = {
+            'last_updated': new_update_time_str,
+            'prices': current_prices_dict
+        }
+        
+        save_new_data(JSON_FILE, new_data_to_save)
+        print(f"\nĐã cập nhật và ghi đè file: {JSON_FILE}")
+        print("--- Hoàn tất ---")
+
+    except requests.RequestException as e:
+        print(f"Lỗi khi tải trang: {e}")
     except Exception as e:
-        print(f"Lỗi không xác định khi scrape: {e}")
-        return None
+        print(f"Đã xảy ra lỗi không xác định: {e}")
 
-def compare_and_print(old_price, new_price, key):
-    """So sánh và in ra thay đổi."""
-    old = old_price.get(key, 0) # Dùng .get để tránh lỗi nếu key không tồn tại
-    new = new_price.get(key, 0)
-    
-    if old == 0: # Lần chạy đầu tiên
-        print(f"Giá {key.upper()} khởi tạo: {new:,.0f} VND")
-    elif new == 0:
-        print(f"Lỗi: Không lấy được giá {key.upper()} mới.")
-    else:
-        change = new - old
-        if change > 0:
-            print(f"Giá {key.upper()}: {new:,.0f} VND (Tăng +{change:,.0f} VND)")
-        elif change < 0:
-            print(f"Giá {key.upper()}: {new:,.0f} VND (Giảm {change:,.0f} VND)")
-        else:
-            print(f"Giá {key.upper()}: {new:,.0f} VND (Không đổi)")
-
-# --- Luồng chạy chính ---
 if __name__ == "__main__":
-    print("--- Bắt đầu kiểm tra giá vàng (Phiên bản chính thức) ---")
-    
-    # 1. Đọc giá cũ
-    last_price = get_last_price()
-    print(f"Giá cũ (từ file): Mua={last_price['buy']}, Bán={last_price['sell']}")
-    
-    # 2. Scrape giá mới
-    current_price = scrape_current_price()
-    
-    # 3. So sánh và In
-    if current_price:
-        print("--- So sánh giá ---")
-        compare_and_print(last_price, current_price, 'buy')
-        compare_and_print(last_price, current_price, 'sell')
-        
-        # 4. Lưu giá mới
-        save_new_price(current_price)
-        print(f"Đã lưu giá mới vào {JSON_FILE}")
-    else:
-        print("Không thể lấy được giá mới. Bỏ qua lần cập nhật này.")
-    
-    print("--- Hoàn tất ---")
+    fetch_gold_prices()
